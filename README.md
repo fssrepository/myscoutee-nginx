@@ -1,51 +1,92 @@
-# MyScoutee nginx extensions
+# MyScoutee nginx
 
-Shared nginx implementation for MyScoutee and MyScoutee Template. Application
-routes and country GeoJSON stay in each application's repository.
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-- `partition/`: native nginx C module with S2 C++ spherical geometry. Loads and
-  indexes the complete GeoJSON Polygon/MultiPolygon snapshot during nginx config
-  loading. Request processing uses the in-memory index, without HTTP hops, Lua,
-  backend calls or database access. Holes and partition specificity are supported.
-- `conf/`: deployed-route filtering and native per-IP request limiting. Normal
-  traffic allows 30 requests/second with burst 120; unknown paths 2/second with
-  burst 10. Health and runtime-status endpoints are exempt from the general limit.
-- `tools/nginx-blocklist.py`: existing host-side blocklist owner, including
-  scanner discovery. 100 unknown-route requests within 10 minutes produce a
-  persistent ban and bounded path evidence. Its host timer applies changes with
-  nginx validation and graceful reload, without restarting the nginx master.
-- `tools/traffic/`: access-log statistics, with optional browser diagnostics kept
-  behind `--debug`. `--summary` reports campaign sources and whether further
-  application activity is visible; it does not infer proven clicks or people.
-- `runtime-status/`: existing backend-readiness receiver, moved unchanged from
-  the application repository. It is separate from native geometry processing.
+Shared native nginx extensions for MyScoutee and MyScoutee Template. Applications
+pin this repository as a Git submodule and build their frontend proxy image on
+its base image. Request processing stays inside nginx C/C++ modules.
 
-## Native image and test
+| Documentation | Link |
+| --- | --- |
+| Short guide | [MyScoutee nginx (PDF)](output/pdf/MyScoutee_Nginx_Guide.pdf) |
+| Local log report | [Usage](tools/traffic/README.md) |
+| License | [BSD-3-Clause](LICENSE) · [Logo permissions](BRANDING.md) |
+
+## Included behavior
+
+| Feature | Implementation / default |
+| --- | --- |
+| Location eligibility | Full bundled GeoJSON snapshot, indexed once with S2 spherical geometry; Polygon, MultiPolygon, holes and specificity |
+| Public landing and demo | Remain available regardless of coordinate eligibility |
+| Operator IP bans | Exact IPv4/IPv6 → individual plain-text 403 message; native shared cache; background refresh every second |
+| Scanner bans | 100 unknown-route attempts in 600 seconds; persistent ban with timestamp and bounded path evidence |
+| Rate limits | Native nginx: 30 requests/s, burst 120; unknown routes: 2/s, burst 10; excess returns 429 |
+| Endpoint inventory | Generated from each application's Spring/Angular/nginx routes at build time; literal routes use nginx's hash map |
+| Basic traffic summary | Daily source/session/HTML/application/demo/login/article counters, independent of browser debug |
+| Browser diagnostics | Off by default; SSI inserts the async script only when enabled |
+| Backend availability | Native authenticated push leases, 20-second expiry, JSON and SSE; Kubernetes uses verified TLS EndpointSlice snapshots |
+| Response policy | Shared security headers, transport policy, SSI switches and diagnostic endpoints |
+
+Geometry applies to `/api/auth/eligibility`, using coordinates rather than IP
+geolocation. It preserves the existing response contract and backend auth checks.
+It does not geographically block the public site. `AUTH_REGION_SECURITY_ENABLED=false`
+disables the eligibility gate.
+
+## Build and integration
 
 ```sh
-docker build -t myscoutee-nginx:native-partition-test .
-PARTITIONS_FILE=/path/to/countryPartitions.json python3 tests/native-test.py
+docker build -t myscoutee-nginx-extensions:1.29.6 .
 ```
 
-The test uses one disposable nginx container, with a 1 CPU/128 MiB limit. It
-checks polygons, holes, multiple islands, specificity, invalid coordinates,
-reload and memory-only lookup. With the full application seed it also checks
-European cities and compares a constant response against native geometry under
-matched concurrent load. No application backend is started.
+The image extends nginx **1.29.6-alpine** with two dynamic modules. Geometry uses
+C++17/S2; the edge module uses C, JSON-C and libcurl for its Kubernetes background
+reader. There is no Go/Python/Lua runtime process in this image. Shell entrypoints
+remain the consuming application's startup glue.
 
-Applications consume this repository as a pinned Git submodule. Their nginx
-configuration loads `ngx_http_partition_module.so`, sets
-`myscoutee_partition_file /etc/nginx/countryPartitions.json`, and uses
-`myscoutee_partition_check` on the existing coordinate-eligibility endpoint.
-`AUTH_REGION_SECURITY_ENABLED=false` disables that eligibility gate.
+Applications provide `countryPartitions.json` and generated `public-routes.map`.
+Their config includes `conf/modules-main.conf`, the shared HTTP/server policy and
+`conf/runtime-status.conf`. Application-specific proxy routes remain with the app.
+The backend/template release builder performs these steps automatically.
 
-The landing, demo and public content remain geographically accessible. The
-eligibility endpoint returns the existing JSON contract; it is not a site-wide
-IP ban. Scanner bans are independent of geographic eligibility.
+| Persistent state | Container path |
+| --- | --- |
+| Operator IP/message object | `/etc/nginx/myscoutee-operator/nginx-blocked-ips.json` |
+| Automatic bans and findings | `/var/lib/nginx/myscoutee/scanner-blocked-ips.json` |
+| Traffic summary, updated every 30s | `/var/lib/nginx/myscoutee/traffic-summary.json` |
 
-Auto-ban evidence is stored on the deployment host in
-`/var/lib/<application>/nginx-blocklist/scanner-blocked-ips.json`; candidate
-counters and read positions survive worker restarts in `scanner-state.json`.
-Operator-edited bans remain separate and take message precedence. Remove an
-entry from the generated file to unblock it. Findings can be reviewed/exported
-into a versioned deployment list; the worker never publishes to GitHub.
+Mount the operator **directory** read-only so atomic edits remain visible; mount
+the state directory on a persistent volume writable by nginx UID 101. Invalid
+operator updates retain the last valid cache. Messages allow up to 1000 UTF-8
+bytes of single-line text. Manual messages take precedence over automatic bans.
+Removing an operator entry or deleting a saved automatic-ban entry clears that
+ban on background refresh. Findings are never automatically published to GitHub.
+
+The live summary is also available **inside the container** at
+`http://127.0.0.1:9081/internal/traffic-summary`. A session groups the same source
+IP and user agent with a 30-minute inactivity gap. Attribution is an estimate:
+Instagram alone does not prove a paid click, and no follow-up HTTP activity does
+not prove that no click or reading occurred. Browser debug is a separate layer.
+
+Shared state is bounded: 8,192 scanner/operator IP entries, 16,384 active visit
+slots, 32 readiness services × 128 instances. Cache lookups probe at most 64 slots.
+Bans survive workers/reloads and container replacement through the state volume;
+traffic totals are checkpointed every 30 seconds. Separate proxy instances have
+separate in-memory state; this is not a distributed ban service.
+
+## Verify locally
+
+```sh
+NGINX_NATIVE_TEST_IMAGE=myscoutee-nginx-extensions:1.29.6 python3 tests/edge-test.py
+NGINX_NATIVE_TEST_IMAGE=myscoutee-nginx-extensions:1.29.6 python3 tests/kubernetes-test.py
+NGINX_NATIVE_TEST_IMAGE=myscoutee-nginx-extensions:1.29.6 \
+  PARTITIONS_FILE=/path/to/countryPartitions.json python3 tests/native-test.py
+python3 -B -m unittest discover -s tools/traffic -p 'test_*.py'
+MYSCOUTEE_FRONTEND_ROOT=/path/to/frontend node --test browser/landing-debug.test.mjs
+```
+
+Container tests cover shared workers, hot updates, custom IPv4/IPv6 responses,
+scanner thresholds, removal/replacement persistence, readiness/SSE, TLS/token
+validation, SSI and campaign statistics. Geometry tests cover holes, islands,
+specificity, invalid coordinates, memory-only lookup and optional full-seed city
+checks with matched constant-response/geometry load measurements. Local build,
+report and test scripts are not copied into the runtime image.

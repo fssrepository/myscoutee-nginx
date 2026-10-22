@@ -74,6 +74,14 @@ http {
   }
 }
 ''')
+    with_edge = os.environ.get('WITH_EDGE') == '1'
+    if with_edge:
+        config = (work/'nginx.conf').read_text()
+        config = 'load_module /usr/lib/nginx/modules/ngx_http_edge_module.so;\nthread_pool myscoutee_background threads=1 max_queue=1;\n' + config
+        config = config.replace('http {', 'http {\n  myscoutee_edge_state 32m;\n  map $uri $myscoutee_route_known {default 1;}', 1)
+        config = config.replace('    listen 8080;', '    listen 8080;\n    if ($myscoutee_block_message != "") {return 403;}')
+        config = config.replace('/baseline', '/api/baseline')
+        (work/'nginx.conf').write_text(config)
     name = f'myscoutee-native-test-{os.getpid()}'
     try:
         run('docker', 'run', '-d', '--name', name, '--cpus=1', '--memory=128m',
@@ -89,7 +97,7 @@ http {
             return response.status, json.loads(body) if response.status == 200 else None
         for attempt in range(40):
             try:
-                assert query('/baseline')[0] == 200
+                assert query('/api/baseline' if with_edge else '/baseline')[0] == 200
                 break
             except (OSError, AssertionError):
                 time.sleep(.1)
@@ -125,10 +133,10 @@ http {
                         (54.5973, -5.9301, 'country:gb'), (53.3498, -6.2603, None), (48.8566, 2.3522, None)]:
                 result = query(f'/api/auth/eligibility?latitude={latitude}&longitude={longitude}')[1]
                 assert result['partitionKey'] == key, (latitude, longitude, key, result)
-            baseline = asyncio.run(benchmark(port, '/baseline'))
+            baseline = asyncio.run(benchmark(port, '/api/baseline' if with_edge else '/baseline'))
             native = asyncio.run(benchmark(port, '/api/auth/eligibility?latitude=47.4979&longitude=19.0402'))
             print(json.dumps({'imageId': run('docker', 'inspect', '--format', '{{.Image}}', name),
-                              'cpuLimit': 1, 'memoryLimitMiB': 128, 'fixtureAndCities': 'pass',
+                              'edgeModuleEnabled': with_edge, 'cpuLimit': 1, 'memoryLimitMiB': 128, 'fixtureAndCities': 'pass',
                               'baseline': baseline, 'nativeGeometry': native}, indent=2))
         else:
             print('PASS: native Polygon/MultiPolygon, holes, specificity, malformed coordinates and memory-only lookup')
