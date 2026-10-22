@@ -35,6 +35,11 @@ disables the eligibility gate.
 
 ## Build and integration
 
+Released image: `ghcr.io/fssrepository/myscoutee-nginx:1.4.6` (Linux amd64).
+The [v1.4.6 release](https://github.com/fssrepository/myscoutee-nginx/releases/tag/v1.4.6)
+records its immutable digest and source commit. Git tags `vX.Y.Z` run the native
+tests before publishing the image and its GitHub Release.
+
 ```sh
 docker build -t myscoutee-nginx-extensions:1.29.6 .
 ```
