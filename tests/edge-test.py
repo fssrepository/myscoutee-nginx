@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='myscoutee-edge-') as directory:
     (w/'state').mkdir(mode=0o777);(w/'state').chmod(0o777)
     (w/'operator').mkdir();(w/'operator/nginx-blocked-ips.json').write_text('{}')
     (w/'headers.conf').write_text('add_header X-Test-Policy shared always;\n')
-    (w/'routes.map').write_text('"~^/(?:|demo|article|api/auth/session/login|api/landing/content|api/runtime-status|api/runtime-status/events|assets/diagnostics/landing.js)$" 1;\n')
+    (w/'routes.map').write_text('"~^/(?:|demo|article|api/auth/session/login|api/landing/content|api/runtime-status|api/runtime-status/events|assets/diagnostics/landing.js|assets/known-missing.png)$" 1;\n')
     (w/'index.html').write_text('''<html><!--# if expr="$myscoutee_landing_debug = 1" --><script src="/assets/diagnostics/landing.js" async></script><!--# endif --></html>''')
     config='''load_module /usr/lib/nginx/modules/ngx_http_edge_module.so;
 thread_pool myscoutee_background threads=1 max_queue=1;
@@ -53,6 +53,7 @@ http {
   location = /api/auth/session/login {default_type application/json;return 200 '{}';}
   location = /api/landing/content {default_type application/json;return 200 '{}';}
   location = /assets/diagnostics/landing.js {alias /usr/share/nginx/diagnostics/landing.js;}
+  location = /assets/known-missing.png {root /fixture;try_files $uri =404;}
   location / {root /fixture;ssi on;try_files /index.html =404;}
  }
  include /etc/nginx/myscoutee/runtime-internal.conf;
@@ -114,7 +115,7 @@ http {
         scanner='198.51.100.99'
         for i in range(99):assert query('/missing-'+str(i),ip=scanner)[0] in (404,429)
         assert query('/',ip=scanner)[0] in (200,429)
-        query('/last-missing',ip=scanner)
+        query('/assets/known-missing.png',ip=scanner)
         assert query('/',ip=scanner)[0]==403
         assert b'We see your scanning activity' in query('/',ip=scanner)[1]
         journal=w/'state/scanner-blocked-ips.json'

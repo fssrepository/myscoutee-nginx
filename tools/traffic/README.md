@@ -9,11 +9,18 @@ log. It does not navigate the site or change the deployment.
 | `--summary` | Compact campaign/session/activity counters |
 | `--debug` | Add detailed browser packets to the report |
 | `--netcup` | Read logs using the consuming application's existing pinned SSH configuration |
-| `--json` | Machine-readable output |
+| `--format json` | Machine-readable output |
 
-Use the consuming application's `tools/traffic/analyze-access-log.py` entrypoint
-for Netcup; it supplies that checkout's credentials and asset paths. No credential
-belongs in this repository. See `--help` for input and time-window options.
+From the consuming application's root:
+
+```sh
+python3 nginx/tools/traffic/analyze-access-log.py --netcup --summary
+python3 nginx/tools/traffic/analyze-access-log.py --netcup --debug
+```
+
+The current working directory supplies the existing application credential and
+asset paths. `--ssh-config` and `--assets` can select them explicitly. No
+credential belongs in this repository. See `--help` for time-window options.
 
 Sessions and actions are inferred from observed requests. An Instagram user agent
 alone does not prove a paid click. No further HTTP activity does not prove that

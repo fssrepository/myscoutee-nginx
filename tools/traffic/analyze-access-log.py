@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 
-ROOT = Path(globals().get('PROJECT_ROOT', Path(__file__).resolve().parents[2]))
+ROOT = Path(globals().get('PROJECT_ROOT', Path.cwd()))
 LOG_PATTERN = re.compile(
     r'^(?:\S+Z\s+)?(?P<ip>\S+) - \S+ \[(?P<time>[^\]]+)\] '
     r'"(?P<method>\S+) (?P<url>\S+) HTTP/[^\"]+" '

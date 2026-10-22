@@ -596,7 +596,10 @@ static ngx_int_t edge_log(ngx_http_request_t *r) {
       !address_key(r->connection->sockaddr, key, &family))
     return NGX_OK;
   known = ngx_http_get_variable(r, &name, ngx_hash_key(name.data, name.len));
-  if (known && !known->not_found && known->len == 1 && known->data[0] == '0' &&
+  /* Missing static resources are nonexistent URLs too; business API 404s
+   * on valid routes must not become scanner evidence. */
+  unsigned missing_static = r->headers_out.status == 404 && prefix(uri, "/assets/");
+  if (((known && !known->not_found && known->len == 1 && known->data[0] == '0') || missing_static) &&
       r->headers_out.status != 403) {
     ngx_shmtx_lock(&c->pool->mutex);
     p = find_ip(c, key, family, 1);
