@@ -56,7 +56,8 @@ The backend/template release builder performs these steps automatically.
 
 Mount the operator **directory** read-only so atomic edits remain visible; mount
 the state directory on a persistent volume writable by nginx UID 101. Invalid
-operator updates retain the last valid cache. Messages allow up to 1000 UTF-8
+operator updates retain the last valid cache. Invalid policy or saved-ban files
+prevent a new nginx configuration from starting without its bans. Messages allow up to 1000 UTF-8
 bytes of single-line text. Manual messages take precedence over automatic bans.
 Removing an operator entry or deleting a saved automatic-ban entry clears that
 ban on background refresh. Findings are never automatically published to GitHub.
@@ -90,3 +91,10 @@ validation, SSI and campaign statistics. Geometry tests cover holes, islands,
 specificity, invalid coordinates, memory-only lookup and optional full-seed city
 checks with matched constant-response/geometry load measurements. Local build,
 report and test scripts are not copied into the runtime image.
+
+The consuming projects also run `tests/application-test.py` against their built
+image and `tests/gateway-test.py` with `APPLICATION_ROOT` set to the checkout;
+the latter verifies the Kubernetes gateway as UID 101 with a read-only root
+filesystem. `tests/packaging-test.py` checks preservation of operator state during
+upgrade. The guide can be regenerated locally with `docs/build-guide.py`
+(ReportLab and DejaVu Sans required).

@@ -101,7 +101,7 @@ http {
         assert r.status==200
         first=[r.readline(),r.readline(),r.readline()];assert first[0]==b'event: status\n' and b'"ready":true' in first[1],first
         push('media',False,instance='two')
-        changed=[r.readline(),r.readline(),r.readline()];assert b'"ready":false' in changed[1],changed;c.close()
+        changed=[r.readline(),r.readline(),r.readline()];assert b'"ready":false' in changed[1],changed;r.close();c.close()
         # Hot operator list: separate messages, invalid update keeps last good state.
         operator=w/'operator/nginx-blocked-ips.json'
         operator.write_text(json.dumps({'198.51.100.2':'First message','2001:db8::2':'IPv6 message'}))
@@ -109,6 +109,8 @@ http {
         assert b'First message' in query(ip='198.51.100.2')[1]
         assert b'IPv6 message' in query(ip='2001:db8::2')[1]
         operator.write_text('{invalid')
+        invalid=subprocess.run(['docker','exec',name,'nginx','-c','/fixture/nginx.conf','-t'],capture_output=True)
+        assert invalid.returncode != 0
         time.sleep(1.2);assert query(ip='198.51.100.2')[0]==403
         operator.write_text('{}');eventually(lambda:query(ip='198.51.100.2')[0]==200)
         # Shared across both workers: 99 attempts are not a permanent ban; 100th is.
@@ -130,12 +132,22 @@ http {
         query('/api/auth/session/login',ip='198.51.100.21',method='POST')
         summary=json.loads(run('docker','exec',name,'wget','-qO-','http://127.0.0.1:9081/internal/traffic-summary'))
         meta=summary['sources']['meta_paid'];assert meta['sessions']==2 and meta['noFurtherActivity']==1 and meta['demo']==1 and meta['login']==1,meta
+        # Normal stop flushes a just-detected ban without waiting for a timer.
+        scanner_on_stop='198.51.100.100'
+        for i in range(100):query('/stop-missing-'+str(i),ip=scanner_on_stop)
+        run('docker','stop','--time','10',name)
+        run('docker','start',name)
+        ports=tuple(int(run('docker','port',name,str(p)+'/tcp').rsplit(':',1)[1]) for p in (8080,9081))
+        eventually(lambda:query(ip=scanner_on_stop)[0]==403)
         # Container replacement retains a ban without the application or a host worker.
         logs=run('docker','logs',name);assert '[alert]' not in logs,logs
         run('docker','rm','-f',name);ports=start()
         eventually(lambda:query(ip=scanner)[0]==403)
         run('docker','exec',name,'sh','-c',"printf '[]' > /var/lib/nginx/myscoutee/scanner-blocked-ips.json")
         eventually(lambda:query(ip=scanner)[0]==200)
+        run('docker','exec',name,'sh','-c',"printf '{invalid' > /var/lib/nginx/myscoutee/scanner-blocked-ips.json")
+        invalid=subprocess.run(['docker','exec',name,'nginx','-c','/fixture/nginx.conf','-t'],capture_output=True)
+        assert invalid.returncode != 0
         logs=run('docker','logs',name);assert 'alert' not in logs,logs
         processes=run('docker','exec',name,'ps','-o','comm')
         assert 'python' not in processes and 'runtime-status' not in processes,processes

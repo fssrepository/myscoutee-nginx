@@ -548,7 +548,8 @@ def netcup_lines(config_path, since, tail, debug=False):
                                '--tail', str(tail), 'nginx'])]
         if debug:
             commands.append(shlex.join(['docker', 'exec', 'nginx', 'sh', '-c',
-                                'if test -f /var/log/nginx/landing-debug.log; then tail -n ' + str(tail) +
+                                'if test -f /tmp/myscoutee-landing-debug.log; then tail -n ' + str(tail) +
+                                ' /tmp/myscoutee-landing-debug.log; elif test -f /var/log/nginx/landing-debug.log; then tail -n ' + str(tail) +
                                 ' /var/log/nginx/landing-debug.log; fi']))
         for index, command in enumerate(commands):
             channel = client.get_transport().open_session(timeout=30)

@@ -91,10 +91,11 @@ static char *edge_state(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *edge_handler_directive(ngx_conf_t *cf, ngx_command_t *cmd,
                                     void *conf);
 static ngx_int_t edge_init_process(ngx_cycle_t *cycle);
+static void edge_exit_process(ngx_cycle_t *cycle);
 static ngx_int_t edge_handler(ngx_http_request_t *r);
 static ngx_int_t edge_log(ngx_http_request_t *r);
 static void edge_tick(ngx_event_t *ev);
-static void refresh_manual(edge_conf *c);
+static int refresh_manual(edge_conf *c);
 static void load_stats(edge_conf *c);
 static const char *source_names[SOURCE_CAP] = {
     "direct_or_unknown", "meta_paid",     "meta_campaign", "other_paid",
@@ -141,7 +142,7 @@ ngx_module_t ngx_http_edge_module = {NGX_MODULE_V1,
                                      edge_init_process,
                                      NULL,
                                      NULL,
-                                     NULL,
+                                     edge_exit_process,
                                      NULL,
                                      NGX_MODULE_V1_PADDING};
 static void *edge_create_main(ngx_conf_t *cf) {
@@ -294,11 +295,11 @@ static int parse_ip(const char *s, u_char key[16], uint32_t *family) {
   }
   return 0;
 }
-static void load_bans(edge_conf *c) {
+static int load_bans(edge_conf *c) {
   json_object *a = read_json(STATE_FILE, 16 * 1024 * 1024);
   size_t i;
-  if (!a)
-    return;
+  if (!a) { struct stat st; return stat(STATE_FILE, &st) != 0 && errno == ENOENT; }
+  if (json_object_get_type(a) != json_type_array || json_object_array_length(a) > IP_CAP) { json_object_put(a); return 0; }
   if (json_object_get_type(a) == json_type_array)
     for (i = 0; i < json_object_array_length(a); i++) {
       json_object *v = json_object_array_get_idx(a, i), *x, *paths;
@@ -309,10 +310,9 @@ static void load_bans(edge_conf *c) {
       if (!json_object_object_get_ex(v, "ip", &x) ||
           json_object_get_type(x) != json_type_string ||
           !parse_ip(json_object_get_string(x), key, &family))
-        continue;
+        { json_object_put(a); return 0; }
       p = find_ip(c, key, family, 1);
-      if (!p)
-        break;
+      if (!p) { json_object_put(a); return 0; }
       p->automatic = 1;
       if (json_object_object_get_ex(v, "detectedAt", &x))
         p->detected = json_object_get_int64(x);
@@ -325,6 +325,7 @@ static void load_bans(edge_conf *c) {
                     json_object_array_get_idx(paths, j));
     }
   json_object_put(a);
+  return 1;
 }
 static void sync_services(edge_conf *c) {
     unsigned i; uint64_t hash = 1469598103934665603ULL;
@@ -343,24 +344,24 @@ static ngx_int_t edge_init_zone(ngx_shm_zone_t *z, void *old) {
     c->pool = previous->pool;
     c->shared = previous->shared;
     sync_services(c);
-    refresh_manual(c);
+    if (!refresh_manual(c)) { ngx_log_error(NGX_LOG_EMERG, z->shm.log, 0, "invalid operator nginx blocklist"); return NGX_ERROR; }
     return NGX_OK;
   }
   c->pool = (ngx_slab_pool_t *)z->shm.addr;
   if (z->shm.exists) {
     c->shared = c->pool->data;
     sync_services(c);
-    refresh_manual(c);
+    if (!refresh_manual(c)) { ngx_log_error(NGX_LOG_EMERG, z->shm.log, 0, "invalid operator nginx blocklist"); return NGX_ERROR; }
     return NGX_OK;
   }
   c->shared = ngx_slab_calloc(c->pool, sizeof(edge_shared));
   if (!c->shared)
     return NGX_ERROR;
   c->pool->data = c->shared;
-  load_bans(c);
+  if (!load_bans(c)) { ngx_log_error(NGX_LOG_EMERG, z->shm.log, 0, "invalid saved nginx scanner bans"); return NGX_ERROR; }
   load_stats(c);
   sync_services(c);
-  refresh_manual(c);
+  if (!refresh_manual(c)) { ngx_log_error(NGX_LOG_EMERG, z->shm.log, 0, "invalid operator nginx blocklist"); return NGX_ERROR; }
   return NGX_OK;
 }
 static char *edge_state(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -481,7 +482,7 @@ static int credentials(edge_conf *c, ngx_conf_t *cf) {
     return service_add(c, "profilemanagement", token);
   path = getenv("MYSCOUTEE_RUNTIME_STATUS_TOKEN_FILE");
   if (path && *path) {
-    char bytes[65];
+    char bytes[514];
     int fd = open(path, O_RDONLY | O_NOFOLLOW);
     ssize_t n;
     if (fd < 0 && errno == ENOENT && !ngx_test_config) {
@@ -509,9 +510,9 @@ static int credentials(edge_conf *c, ngx_conf_t *cf) {
       fd = open(path, O_RDONLY | O_NOFOLLOW);
     }
     if (fd >= 0) {
-      n = read(fd, bytes, 64);
+      n = read(fd, bytes, sizeof(bytes) - 1);
       close(fd);
-      if (n < 32)
+      if (n < 32 || n > 512)
         return 0;
       bytes[n] = 0;
       while (n > 0 && (bytes[n - 1] == '\n' || bytes[n - 1] == '\r'))
@@ -712,29 +713,29 @@ static ngx_int_t edge_log(ngx_http_request_t *r) {
   ngx_shmtx_unlock(&c->pool->mutex);
   return NGX_OK;
 }
-static void refresh_manual(edge_conf *c) {
+static int refresh_manual(edge_conf *c) {
   struct stat st;
   json_object *o;
   edge_ip *snapshot;
   unsigned i;
   int valid = 1;
-  if (!c->manual_file.len || stat((char *)c->manual_file.data, &st))
-    return;
+  if (!c->manual_file.len) return 1;
+  if (stat((char *)c->manual_file.data, &st)) return 0;
   if (st.st_mtime == manual_mtime && st.st_size == manual_size &&
       st.st_ino == manual_inode && st.st_mtim.tv_nsec == manual_nsec)
-    return;
+    return 1;
   o = read_json((char *)c->manual_file.data, 8 * 1024 * 1024);
   if (!o)
-    return;
+    return 0;
   if (json_object_get_type(o) != json_type_object ||
       json_object_object_length(o) > IP_CAP) {
     json_object_put(o);
-    return;
+    return 0;
   }
   snapshot = calloc(IP_CAP, sizeof(edge_ip));
   if (!snapshot) {
     json_object_put(o);
-    return;
+    return 0;
   }
   /* Validate the complete update before replacing live state. */
   json_object_object_foreach(o, k, v) {
@@ -747,7 +748,7 @@ static void refresh_manual(edge_conf *c) {
       break;
     }
     for (i = 0; msg[i]; i++)
-      if ((unsigned char)msg[i] < 32) {
+      if ((unsigned char)msg[i] < 32 || (unsigned char)msg[i] == 127) {
         valid = 0;
         break;
       }
@@ -784,6 +785,7 @@ static void refresh_manual(edge_conf *c) {
   }
   free(snapshot);
   json_object_put(o);
+  return valid;
 }
 static int write_json(const char *path, json_object *o) {
   char tmp[256];
@@ -1474,4 +1476,15 @@ static ngx_int_t edge_init_process(ngx_cycle_t *cycle) {
   maintenance.log = cycle->log;
   ngx_add_timer(&maintenance, 1);
   return NGX_OK;
+}
+
+/* A normal stop flushes the final dirty state before workers disappear. */
+static void edge_exit_process(ngx_cycle_t *cycle) {
+    json_object *o;
+    (void)cycle;
+    if (ngx_worker != 0 || !worker_conf || !worker_conf->shared || ngx_process != NGX_PROCESS_WORKER) return;
+    persist_bans(worker_conf);
+    o = summary(worker_conf);
+    write_json(SUMMARY_FILE, o);
+    json_object_put(o);
 }
