@@ -7,7 +7,7 @@ import re
 
 ROOT = Path(globals().get('PROJECT_ROOT', Path.cwd()))
 JAVA = ROOT / 'server/projects/profile/src/main/java'
-OUTPUT = ROOT / 'server/docker/conf/nginx/conf/http/public-routes.map'
+OUTPUT = ROOT / 'config/nginx/http/public-routes.map'
 MAPPING = re.compile(r'@(Request|Get|Post|Put|Delete|Patch)Mapping\b(?:\s*\(([^)]*)\))?', re.S)
 
 
@@ -74,7 +74,7 @@ def inventory():
         r'^/(?:nginx-health|__landing-debug|api/runtime-status|api/runtime-status/events|api/health)$',
         r'^/api/(?:activities/chats/ws|admin/notifications/ws)$',
     ])
-    routing = (ROOT / 'server/docker/conf/nginx/conf/http/routing.conf').read_text()
+    routing = (ROOT / 'config/nginx/http/routing.conf').read_text()
     for modifier, route in re.findall(r'location\s+(?:(=|\^~|~\*?|)\s+)?([^\s{]+)\s*\{', routing):
         if route == '/api/':
             continue

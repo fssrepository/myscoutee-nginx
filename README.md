@@ -3,8 +3,8 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
 Shared native nginx extensions for MyScoutee and MyScoutee Template. Applications
-pin this repository as a Git submodule and build their frontend proxy image on
-its base image. Request processing stays inside nginx C/C++ modules.
+consume the released GHCR image by digest and add their own proxy configuration.
+Request processing stays inside nginx C/C++ modules. Source changes belong here.
 
 | Documentation | Link |
 | --- | --- |
@@ -41,18 +41,22 @@ records its immutable digest and source commit. Git tags `vX.Y.Z` run the native
 tests before publishing the image and its GitHub Release.
 
 ```sh
-docker build -t myscoutee-nginx-extensions:1.29.6 .
+docker build -t myscoutee-nginx:1.4.6 .
 ```
 
 The image extends nginx **1.29.6-alpine** with two dynamic modules. Geometry uses
 C++17/S2; the edge module uses C, JSON-C and libcurl for its Kubernetes background
 reader. There is no Go/Python/Lua runtime process in this image. Shell entrypoints
-remain the consuming application's startup glue.
+are shared here too: dev, production TLS, E2E certificates and wait-for-it are
+installed under `/scripts`. The route-inventory generator is packaged under
+`/opt/myscoutee-nginx/tools` for build-time use with the host's Python; it does
+not start a Python process in the deployed proxy.
 
 Applications provide `countryPartitions.json` and generated `public-routes.map`.
 Their config includes `conf/modules-main.conf`, the shared HTTP/server policy and
 `conf/runtime-status.conf`. Application-specific proxy routes remain with the app.
-The backend/template release builder performs these steps automatically.
+The backend/template release builder pulls the released module image; no nginx
+source checkout or module compilation is required in either application.
 
 | Persistent state | Container path |
 | --- | --- |
@@ -83,9 +87,9 @@ separate in-memory state; this is not a distributed ban service.
 ## Verify locally
 
 ```sh
-NGINX_NATIVE_TEST_IMAGE=myscoutee-nginx-extensions:1.29.6 python3 tests/edge-test.py
-NGINX_NATIVE_TEST_IMAGE=myscoutee-nginx-extensions:1.29.6 python3 tests/kubernetes-test.py
-NGINX_NATIVE_TEST_IMAGE=myscoutee-nginx-extensions:1.29.6 \
+NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.4.6 python3 tests/edge-test.py
+NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.4.6 python3 tests/kubernetes-test.py
+NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.4.6 \
   PARTITIONS_FILE=/path/to/countryPartitions.json python3 tests/native-test.py
 python3 -B -m unittest discover -s tools/traffic -p 'test_*.py'
 MYSCOUTEE_FRONTEND_ROOT=/path/to/frontend node --test browser/landing-debug.test.mjs
@@ -95,8 +99,7 @@ Container tests cover shared workers, hot updates, custom IPv4/IPv6 responses,
 scanner thresholds, removal/replacement persistence, readiness/SSE, TLS/token
 validation, SSI and campaign statistics. Geometry tests cover holes, islands,
 specificity, invalid coordinates, memory-only lookup and optional full-seed city
-checks with matched constant-response/geometry load measurements. Local build,
-report and test scripts are not copied into the runtime image.
+checks with matched constant-response/geometry load measurements. Report and test scripts are not copied into the runtime image.
 
 The consuming projects also run `tests/application-test.py` against their built
 image and `tests/gateway-test.py` with `APPLICATION_ROOT` set to the checkout;

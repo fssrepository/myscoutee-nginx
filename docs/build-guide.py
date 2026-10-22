@@ -34,11 +34,11 @@ def furniture(canvas,doc):
     canvas.setFont('GuideBold',11);canvas.setFillColor(BLUE);canvas.drawString(87,height-52,'MyScoutee')
     canvas.setFont('Guide',8);canvas.setFillColor(GRAY);canvas.drawString(87,height-67,'Native nginx extensions')
     canvas.setStrokeColor(colors.HexColor('#dde3ee'));canvas.line(42,43,width-42,43)
-    canvas.setFont('Guide',7);canvas.drawString(42,29,'MSC-127  |  BSD-3-Clause  |  nginx 1.29.6  |  22 October 2026')
+    canvas.setFont('Guide',7);canvas.drawString(42,29,'MSC-127  |  1.4.6  |  BSD-3-Clause  |  nginx 1.29.6')
     canvas.drawRightString(width-42,29,f'{doc.page} / 2')
     canvas.restoreState()
 
-flow=[p('One shared proxy implementation',title),p('Native C/C++ modules for MyScoutee and MyScoutee Template. The application image inherits this nginx base; both projects pin the same implementation as a Git submodule.'),
+flow=[p('One shared proxy implementation',title),p('Native C/C++ modules for MyScoutee and MyScoutee Template. The application image inherits this nginx base; both projects pin the released GHCR image by digest. Only their own configuration, data and frontend bundle stay in the application.'),
       p('What runs at the edge',heading),
       table([['Capability','Behavior'],
       ['Coordinate eligibility','S2 spherical lookup against the complete bundled GeoJSON snapshot. Polygon, MultiPolygon, holes and partition specificity. No per-request backend call.'],
