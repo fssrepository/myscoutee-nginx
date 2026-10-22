@@ -9,6 +9,7 @@ its base image. Request processing stays inside nginx C/C++ modules.
 | Documentation | Link |
 | --- | --- |
 | Short guide | [MyScoutee nginx (PDF)](output/pdf/MyScoutee_Nginx_Guide.pdf) |
+| Verification | [Container checks and measured overhead](docs/verification-20261022.json) |
 | Local log report | [Usage](tools/traffic/README.md) |
 | License | [BSD-3-Clause](LICENSE) · [Logo permissions](BRANDING.md) |
 

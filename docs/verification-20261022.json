@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-22",
+  "nginxSourceRevision": "7f9e0de86c870ec974bd35184e35e8a5c86b926f",
+  "moduleSourceSha256": {
+    "edge/ngx_http_edge_module.c": "47d3648542799c3b3469a841a64bfd0d1f9774d0135be367d5ce5beec74cd794",
+    "partition/ngx_http_partition_module.c": "ff84a97b89cb3ec520d39f6b455dbf86bbc4477e6f5ca5a6245cf09bdd6b5d28",
+    "partition/geometry.cc": "c4bcbf70b38814eab5ed097481cc4dc96a20d8a34a94b0374b69631255a6ac50"
+  },
+  "nativeEdge": {
+    "nativeEdge": "pass",
+    "workers": 2,
+    "hotPolicy": "pass",
+    "scanner100": "pass",
+    "persistence": "pass",
+    "readinessSse": "pass",
+    "ssi": "pass",
+    "metaStats": {
+      "sessions": 2,
+      "htmlResponses": 3,
+      "applicationRequests": 5,
+      "furtherActivity": 1,
+      "noFurtherActivity": 1,
+      "demo": 1,
+      "login": 1,
+      "articles": 0
+    }
+  },
+  "nativeKubernetes": {
+    "nativeKubernetes": "pass",
+    "tlsAndToken": "pass",
+    "readyAndTerminating": "pass",
+    "incompleteSnapshot": "pass"
+  },
+  "backendImage": {
+    "applicationImage": "myscoutee-nginx:msc127-prod-test",
+    "nativeAppConfig": "pass",
+    "landingDemo": "pass",
+    "geoEligibility": "pass",
+    "unknownRoutes": "pass",
+    "sharedHeaders": "pass",
+    "debugOffAndOn": "pass"
+  },
+  "templateImage": {
+    "applicationImage": "myscoutee-template-nginx:msc127-prod-test",
+    "nativeAppConfig": "pass",
+    "landingDemo": "pass",
+    "geoEligibility": "pass",
+    "unknownRoutes": "pass",
+    "sharedHeaders": "pass",
+    "debugOffAndOn": "pass"
+  },
+  "backendGateway": {
+    "gatewayConfig": "pass",
+    "readOnlyNonRoot": "pass",
+    "geometry": "pass",
+    "sharedPolicy": "pass",
+    "application": "myscoutee-backend"
+  },
+  "templateGateway": {
+    "gatewayConfig": "pass",
+    "readOnlyNonRoot": "pass",
+    "geometry": "pass",
+    "sharedPolicy": "pass",
+    "application": "myscoutee-template"
+  },
+  "localTests": {
+    "traffic": 25,
+    "browserBackend": 21,
+    "browserTemplate": 21,
+    "packagingBackend": 3,
+    "packagingTemplate": 3
+  },
+  "moduleBenchmark": {
+    "imageId": "sha256:8d959db4f4c48c501eec736b78b2845f568b537ec384b9aac0c2ab4e5f9444b3",
+    "edgeModuleEnabled": true,
+    "cpuLimit": 1,
+    "memoryLimitMiB": 128,
+    "fixtureAndCities": "pass",
+    "baseline": {
+      "requests": 64000,
+      "concurrency": 32,
+      "requestsPerSecondIncludingWarmup": 52961,
+      "medianMs": 0.4790070006492897,
+      "p95Ms": 1.016157999401912
+    },
+    "nativeGeometry": {
+      "requests": 64000,
+      "concurrency": 32,
+      "requestsPerSecondIncludingWarmup": 32953,
+      "medianMs": 0.9764289998202003,
+      "p95Ms": 1.0983789998135762
+    }
+  },
+  "benchmarkDeltaPercent": {
+    "requestsPerSecondIncludingWarmup": -37.78,
+    "medianMs": 103.84,
+    "p95Ms": 8.09
+  },
+  "benchmarkScope": "One disposable container, 1 CPU / 128 MiB, 32 connections, 64000 measured requests per case plus 10 warmups per connection; constant JSON versus geometry with the same native block-cache/statistics bookkeeping. Route inventory and rate limits are excluded from this synthetic measurement.",
+  "deploymentScope": "Local proxy/container verification; no production deployment or application release."
+}
