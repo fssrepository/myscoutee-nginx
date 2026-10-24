@@ -1,0 +1,71 @@
+name: Release nginx image
+
+on:
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable release tag to publish
+        required: true
+        default: v1.5.0
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref_name }}
+      - name: Build exact tagged source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$RELEASE_TAG" == "v$version" ]]
+          revision="$(git rev-parse HEAD)"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
+          printf 'RELEASE_TAG=%s\nRELEASE_VERSION=%s\nRELEASE_REVISION=%s\nNGINX_NATIVE_TEST_IMAGE=%s\n' "$RELEASE_TAG" "$version" "$revision" "$image" >> "$GITHUB_ENV"
+          docker build --label "org.opencontainers.image.version=$version" \
+            --label "org.opencontainers.image.revision=$revision" --tag "$image" .
+      - name: Verify native modules
+        run: |
+          bash -n runtime/nginx-entrypoint.sh runtime/nginx-production-entrypoint.sh runtime/wait-for-it.sh
+          sh -n runtime/nginx-e2e-entrypoint.sh
+          python3 tests/edge-test.py
+          python3 tests/kubernetes-test.py
+          python3 tests/native-test.py
+          python3 -B -m unittest discover -s tools/traffic -p 'test_*.py'
+      - name: Publish and verify image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          built_id="$(docker image inspect --format '{{.Id}}' "$NGINX_NATIVE_TEST_IMAGE")"
+          docker push "$NGINX_NATIVE_TEST_IMAGE"
+          docker pull "$NGINX_NATIVE_TEST_IMAGE"
+          [[ "$(docker image inspect --format '{{.Id}}' "$NGINX_NATIVE_TEST_IMAGE")" == "$built_id" ]]
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$NGINX_NATIVE_TEST_IMAGE")"
+          {
+            printf 'Shared native nginx modules, release **%s** (nginx 1.29.6, Linux amd64).\n\n' "$RELEASE_VERSION"
+            printf 'Image: `%s`\n\nPinned image: `%s`\n\n' "$NGINX_NATIVE_TEST_IMAGE" "$digest"
+            printf 'Source: `%s`. Native edge, Kubernetes TLS/readiness, geometry and traffic-tool tests passed.\n' "$RELEASE_REVISION"
+          } > release-notes.md
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "MyScoutee nginx $RELEASE_VERSION" --notes-file release-notes.md \
+            output/pdf/MyScoutee_Nginx_Guide.pdf
