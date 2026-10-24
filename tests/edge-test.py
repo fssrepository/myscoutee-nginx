@@ -42,6 +42,13 @@ http {
  log_format main '$remote_addr $uri $status';
  include /etc/nginx/myscoutee/request-policy-http.conf;
  map $arg_debug $myscoutee_landing_debug {default 0;1 1;}
+ set_real_ip_from 127.0.0.1;
+ set_real_ip_from 172.16.0.0/12;
+ real_ip_header X-Test-IP;
+ server {
+  listen 8082;
+  location /metrics/ {rewrite ^ /metrics break; root /fixture;}
+ }
  server {
   listen 8080;
   set_real_ip_from 127.0.0.1;
@@ -63,14 +70,14 @@ http {
     name=f'myscoutee-edge-test-{os.getpid()}'
     def start():
         run('docker','run','-d','--name',name,'--cpus=1','--memory=128m',
-            '-p','127.0.0.1::8080','-p','127.0.0.1::9081',
+            '-p','127.0.0.1::8080','-p','127.0.0.1::9081','-p','127.0.0.1::8082',
             '-e','MYSCOUTEE_RUNTIME_STATUS_TOKENS_JSON='+json.dumps({'profilemanagement':'a'*32,'media':'b'*32}),
             '-v',str(w)+':/fixture:ro','-v',str(w/'state')+':/var/lib/nginx/myscoutee',
             '-v',str(w/'operator')+':/etc/nginx/myscoutee-operator:ro',
             '-v',str(w/'routes.map')+':/etc/nginx/public-routes.map:ro',
             '-v',str(w/'headers.conf')+':/etc/nginx/conf.d/https-response-policy.conf:ro',
             '--entrypoint','nginx',IMAGE,'-c','/fixture/nginx.conf','-g','daemon off;')
-        return int(run('docker','port',name,'8080/tcp').rsplit(':',1)[1]),int(run('docker','port',name,'9081/tcp').rsplit(':',1)[1])
+        return tuple(int(run('docker','port',name,str(port)+'/tcp').rsplit(':',1)[1]) for port in (8080,9081,8082))
     def query(path='/',ip='198.51.100.1',method='GET',body=None,headers=None,internal=False):
         c=http.client.HTTPConnection('127.0.0.1',ports[internal],timeout=5)
         h={'X-Test-IP':ip};h.update(headers or {})
@@ -79,7 +86,26 @@ http {
         return query('/internal/runtime-status',method='POST',body=json.dumps({'instance':instance,'ready':ready}),
                      headers={'X-MyScoutee-Service':service,'Authorization':'Bearer '+(token or ('a'*32 if service=='profilemanagement' else 'b'*32))},internal=True)[0]
     try:
+        (w/'metrics').write_text('fixture_metric 1\n')
         ports=start();eventually(lambda:query()[0]==200)
+        # KVM monitoring and public traffic may have the same NAT address.
+        # Successful internal scrapes must never create a public scanner ban.
+        monitor='198.51.100.40'
+        for i in range(120):assert query('/metrics/identity',ip=monitor,internal=2)[0]==200
+        assert query('/',ip=monitor)[0]==200,'internal monitoring banned the public client'
+        # Reloading a known page can hit the independent 429 rate limiter,
+        # but neither the successful requests nor those 429s are invalid URLs.
+        reloader='198.51.100.41'
+        statuses=[query('/demo',ip=reloader)[0] for i in range(300)]
+        assert set(statuses)=={200,429},set(statuses)
+        eventually(lambda:query('/',ip=reloader)[0]==200)
+        # Optional browser discovery is a known route even when unsupported.
+        # Its expected 404s must not become scanner evidence.
+        devtools='198.51.100.42'
+        for i in range(120):
+            assert query('/.well-known/appspecific/com.chrome.devtools.json',ip=devtools)[0] in (404,429)
+        eventually(lambda:query('/',ip=devtools)[0]==200)
+        assert query('/.well-known/appspecific/not-devtools.json',ip=devtools)[0] in (404,429)
         assert b'<script' not in query('/')[1]
         assert b'<script' in query('/?debug=1')[1]
         assert query('/assets/diagnostics/landing.js')[0]==200
@@ -120,10 +146,18 @@ http {
         query('/assets/known-missing.png',ip=scanner)
         assert query('/',ip=scanner)[0]==403
         assert b'We see your scanning activity' in query('/',ip=scanner)[1]
+        assert query('/',ip='198.51.100.101')[0]==200,'one banned client blocked another client'
+        assert query('/metrics/identity',ip=scanner,internal=2)[0]==200,'client ban affected internal monitoring'
         journal=w/'state/scanner-blocked-ips.json'
         eventually(lambda:journal.exists())
         records=json.loads(run('docker','exec',name,'cat','/var/lib/nginx/myscoutee/scanner-blocked-ips.json'));assert records[0]['ip']==scanner and records[0]['count']==100,records
         assert records[0]['paths']
+        # A persisted ban survives SIGKILL, with no graceful-exit flush.
+        run('docker','kill','--signal=KILL',name)
+        run('docker','start',name)
+        ports=tuple(int(run('docker','port',name,str(p)+'/tcp').rsplit(':',1)[1]) for p in (8080,9081,8082))
+        eventually(lambda:query(ip=scanner)[0]==403)
+        assert query('/',ip='198.51.100.101')[0]==200
         # Attribution + no HTTP follow-up, then a separate campaign visit with activity.
         query('/?utm_source=ig&utm_medium=paid',ip='198.51.100.20')
         query('/api/landing/content',ip='198.51.100.20')
@@ -137,7 +171,7 @@ http {
         for i in range(100):query('/stop-missing-'+str(i),ip=scanner_on_stop)
         run('docker','stop','--time','10',name)
         run('docker','start',name)
-        ports=tuple(int(run('docker','port',name,str(p)+'/tcp').rsplit(':',1)[1]) for p in (8080,9081))
+        ports=tuple(int(run('docker','port',name,str(p)+'/tcp').rsplit(':',1)[1]) for p in (8080,9081,8082))
         eventually(lambda:query(ip=scanner_on_stop)[0]==403)
         # Container replacement retains a ban without the application or a host worker.
         logs=run('docker','logs',name);assert '[alert]' not in logs,logs

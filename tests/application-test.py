@@ -47,9 +47,18 @@ with tempfile.TemporaryDirectory(prefix='myscoutee-app-') as d:
   else:raise AssertionError('old workers did not drain')
   assert re.search(rb'<script[^>]+id=[\"\']myscoutee-landing-debug-recorder',get('/')[1])
 
+  # The deployed monolith must keep its health and other clients available
+  # even when the public client's real source address is banned.
+  for i in range(110):
+   if get('/scanner-missing-'+str(i))[0]==403:break
+  else:raise AssertionError('scanner client was not banned')
+  assert get('/')[0]==403
+  assert run('docker','exec',name,'wget','-qO-','http://127.0.0.1/nginx-health')=='UP'
+  assert '<html' in run('docker','exec',name,'wget','--no-check-certificate','-qO-','https://127.0.0.1/')
+
   logs=run('docker','logs',name);assert '[alert]' not in logs,logs
   ps=run('docker','exec',name,'ps','-o','comm');assert 'python' not in ps and 'runtime-status' not in ps,ps
-  print(json.dumps({'applicationImage':image,'nativeAppConfig':'pass','landingDemo':'pass','geoEligibility':'pass','unknownRoutes':'pass','sharedHeaders':'pass','debugOffAndOn':'pass'}))
+  print(json.dumps({'applicationImage':image,'nativeAppConfig':'pass','landingDemo':'pass','geoEligibility':'pass','unknownRoutes':'pass','sharedHeaders':'pass','debugOffAndOn':'pass','banKeepsHealthAndOtherClients':'pass'}))
  except BaseException:
   print(run('docker','logs',name));raise
  finally:subprocess.run(['docker','rm','-f',name],capture_output=True)
