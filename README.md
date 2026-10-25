@@ -20,7 +20,7 @@ Request processing stays inside nginx C/C++ modules. Source changes belong here.
 | Location eligibility | Full bundled GeoJSON snapshot, indexed once with S2 spherical geometry; Polygon, MultiPolygon, holes and specificity |
 | Public landing and demo | Remain available regardless of coordinate eligibility |
 | Operator IP bans | Exact IPv4/IPv6 → individual plain-text 403 message; native shared cache; background refresh every second |
-| Scanner bans | 100 unknown-route attempts in 600 seconds; persistent ban with timestamp and bounded path evidence |
+| Scanner bans | 100 unknown-route attempts on public listeners in 600 seconds; persistent ban with timestamp and bounded path evidence |
 | Rate limits | Native nginx: 30 requests/s, burst 120; unknown routes: 2/s, burst 10; excess returns 429 |
 | Endpoint inventory | Generated from each application's Spring/Angular/nginx routes at build time; literal routes use nginx's hash map |
 | Basic traffic summary | Daily source/session/HTML/application/demo/login/article counters, independent of browser debug |
@@ -35,13 +35,13 @@ disables the eligibility gate.
 
 ## Build and integration
 
-Released image: `ghcr.io/fssrepository/myscoutee-nginx:1.4.6` (Linux amd64).
-The [v1.4.6 release](https://github.com/fssrepository/myscoutee-nginx/releases/tag/v1.4.6)
+Released image: `ghcr.io/fssrepository/myscoutee-nginx:1.5.0` (Linux amd64).
+The [v1.5.0 release](https://github.com/fssrepository/myscoutee-nginx/releases/tag/v1.5.0)
 records its immutable digest and source commit. Git tags `vX.Y.Z` run the native
 tests before publishing the image and its GitHub Release.
 
 ```sh
-docker build -t myscoutee-nginx:1.4.6 .
+docker build -t myscoutee-nginx:1.5.0 .
 ```
 
 The image extends nginx **1.29.6-alpine** with two dynamic modules. Geometry uses
@@ -55,6 +55,9 @@ not start a Python process in the deployed proxy.
 Applications provide `countryPartitions.json` and generated `public-routes.map`.
 Their config includes `conf/modules-main.conf`, the shared HTTP/server policy and
 `conf/runtime-status.conf`. Application-specific proxy routes remain with the app.
+The public server policy enables `myscoutee_public_edge`; internal listeners do
+not count invalid URLs or apply client bans. Rate limiting remains independent:
+successful page reloads and their 429 responses do not count as unknown URLs.
 The backend/template release builder pulls the released module image; no nginx
 source checkout or module compilation is required in either application.
 
@@ -87,9 +90,9 @@ separate in-memory state; this is not a distributed ban service.
 ## Verify locally
 
 ```sh
-NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.4.6 python3 tests/edge-test.py
-NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.4.6 python3 tests/kubernetes-test.py
-NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.4.6 \
+NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.5.0 python3 tests/edge-test.py
+NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.5.0 python3 tests/kubernetes-test.py
+NGINX_NATIVE_TEST_IMAGE=ghcr.io/fssrepository/myscoutee-nginx:1.5.0 \
   PARTITIONS_FILE=/path/to/countryPartitions.json python3 tests/native-test.py
 python3 -B -m unittest discover -s tools/traffic -p 'test_*.py'
 MYSCOUTEE_FRONTEND_ROOT=/path/to/frontend node --test browser/landing-debug.test.mjs

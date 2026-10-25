@@ -47,6 +47,7 @@ jobs:
           python3 tests/edge-test.py
           python3 tests/kubernetes-test.py
           python3 tests/native-test.py
+          python3 tests/route-inventory-test.py
           python3 -B -m unittest discover -s tools/traffic -p 'test_*.py'
       - name: Publish and verify image
         env:
@@ -66,6 +67,11 @@ jobs:
             printf 'Image: `%s`\n\nPinned image: `%s`\n\n' "$NGINX_NATIVE_TEST_IMAGE" "$digest"
             printf 'Source: `%s`. Native edge, Kubernetes TLS/readiness, geometry and traffic-tool tests passed.\n' "$RELEASE_REVISION"
           } > release-notes.md
-          gh release create "$RELEASE_TAG" --verify-tag \
-            --title "MyScoutee nginx $RELEASE_VERSION" --notes-file release-notes.md \
-            output/pdf/MyScoutee_Nginx_Guide.pdf
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "MyScoutee nginx $RELEASE_VERSION" --notes-file release-notes.md
+            gh release upload "$RELEASE_TAG" output/pdf/MyScoutee_Nginx_Guide.pdf --clobber
+          else
+            gh release create "$RELEASE_TAG" --verify-tag \
+              --title "MyScoutee nginx $RELEASE_VERSION" --notes-file release-notes.md \
+              output/pdf/MyScoutee_Nginx_Guide.pdf
+          fi

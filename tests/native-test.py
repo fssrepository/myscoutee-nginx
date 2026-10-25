@@ -79,7 +79,7 @@ http {
         config = (work/'nginx.conf').read_text()
         config = 'load_module /usr/lib/nginx/modules/ngx_http_edge_module.so;\nthread_pool myscoutee_background threads=1 max_queue=1;\n' + config
         config = config.replace('http {', 'http {\n  myscoutee_edge_state 32m;\n  map $uri $myscoutee_route_known {default 1;}', 1)
-        config = config.replace('    listen 8080;', '    listen 8080;\n    if ($myscoutee_block_message != "") {return 403;}')
+        config = config.replace('    listen 8080;', '    listen 8080;\n    myscoutee_public_edge on;\n    if ($myscoutee_block_message != "") {return 403;}')
         config = config.replace('/baseline', '/api/baseline')
         (work/'nginx.conf').write_text(config)
     name = f'myscoutee-native-test-{os.getpid()}'

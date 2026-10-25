@@ -66,6 +66,9 @@ typedef struct {
   char namespace[65];
 } edge_conf;
 typedef struct {
+  ngx_flag_t public_policy;
+} edge_server_conf;
+typedef struct {
   ngx_uint_t action;
 } edge_loc;
 typedef struct {
@@ -86,6 +89,8 @@ extern ngx_module_t ngx_http_edge_module;
 static ngx_int_t edge_postconfig(ngx_conf_t *cf);
 static ngx_int_t edge_variables(ngx_conf_t *cf);
 static void *edge_create_main(ngx_conf_t *cf);
+static void *edge_create_server(ngx_conf_t *cf);
+static char *edge_merge_server(ngx_conf_t *cf, void *parent, void *child);
 static void *edge_create_loc(ngx_conf_t *cf);
 static char *edge_state(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *edge_handler_directive(ngx_conf_t *cf, ngx_command_t *cmd,
@@ -101,6 +106,9 @@ static const char *source_names[SOURCE_CAP] = {
     "direct_or_unknown", "meta_paid",     "meta_campaign", "other_paid",
     "other_campaign",    "meta_referral", "meta_browser",  "other_referral"};
 static ngx_command_t edge_commands[] = {
+    {ngx_string("myscoutee_public_edge"), NGX_HTTP_SRV_CONF | NGX_CONF_FLAG,
+     ngx_conf_set_flag_slot, NGX_HTTP_SRV_CONF_OFFSET,
+     offsetof(edge_server_conf, public_policy), NULL},
     {ngx_string("myscoutee_edge_state"), NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
      edge_state, NGX_HTTP_MAIN_CONF_OFFSET, 0, NULL},
     {ngx_string("myscoutee_blocklist_file"),
@@ -129,8 +137,8 @@ static ngx_http_module_t edge_context = {edge_variables,
                                          edge_postconfig,
                                          edge_create_main,
                                          NULL,
-                                         NULL,
-                                         NULL,
+                                         edge_create_server,
+                                         edge_merge_server,
                                          edge_create_loc,
                                          NULL};
 ngx_module_t ngx_http_edge_module = {NGX_MODULE_V1,
@@ -155,6 +163,18 @@ static void *edge_create_main(ngx_conf_t *cf) {
 }
 static void *edge_create_loc(ngx_conf_t *cf) {
   return ngx_pcalloc(cf->pool, sizeof(edge_loc));
+}
+static void *edge_create_server(ngx_conf_t *cf) {
+  edge_server_conf *c = ngx_pcalloc(cf->pool, sizeof(*c));
+  if (c)
+    c->public_policy = NGX_CONF_UNSET;
+  return c;
+}
+static char *edge_merge_server(ngx_conf_t *cf, void *parent, void *child) {
+  edge_server_conf *prev = parent, *conf = child;
+  (void)cf;
+  ngx_conf_merge_value(conf->public_policy, prev->public_policy, 0);
+  return NGX_CONF_OK;
 }
 static char *edge_handler_directive(ngx_conf_t *cf, ngx_command_t *cmd,
                                     void *conf) {
@@ -383,6 +403,7 @@ static ngx_int_t blocked_variable(ngx_http_request_t *r,
                                   ngx_http_variable_value_t *v,
                                   uintptr_t data) {
   edge_conf *c = ngx_http_get_module_main_conf(r, ngx_http_edge_module);
+  edge_server_conf *server = ngx_http_get_module_srv_conf(r, ngx_http_edge_module);
   u_char key[16];
   uint32_t family;
   edge_ip *p;
@@ -394,7 +415,8 @@ static ngx_int_t blocked_variable(ngx_http_request_t *r,
   v->no_cacheable = 0;
   v->len = 0;
   v->data = (u_char *)"";
-  if (!c->shared || !address_key(r->connection->sockaddr, key, &family))
+  if (!server->public_policy || !c->shared ||
+      !address_key(r->connection->sockaddr, key, &family))
     return NGX_OK;
   ngx_shmtx_lock(&c->pool->mutex);
   p = find_ip(c, key, family, 0);
@@ -582,6 +604,7 @@ static unsigned traffic_source(ngx_http_request_t *r) {
 }
 static ngx_int_t edge_log(ngx_http_request_t *r) {
   edge_conf *c = ngx_http_get_module_main_conf(r, ngx_http_edge_module);
+  edge_server_conf *server = ngx_http_get_module_srv_conf(r, ngx_http_edge_module);
   u_char key[16];
   uint32_t family;
   edge_ip *p;
@@ -593,7 +616,7 @@ static ngx_int_t edge_log(ngx_http_request_t *r) {
   uint64_t hash;
   edge_visit *v = NULL;
   edge_stats *s;
-  if (r != r->main || prefix(uri, "/internal/") || !c->shared ||
+  if (!server->public_policy || r != r->main || prefix(uri, "/internal/") || !c->shared ||
       !address_key(r->connection->sockaddr, key, &family))
     return NGX_OK;
   known = ngx_http_get_variable(r, &name, ngx_hash_key(name.data, name.len));
