@@ -532,10 +532,24 @@ static int credentials(edge_conf *c, ngx_conf_t *cf) {
       fd = open(path, O_RDONLY | O_NOFOLLOW);
     }
     if (fd >= 0) {
+      struct stat st;
       n = read(fd, bytes, sizeof(bytes) - 1);
-      close(fd);
-      if (n < 32 || n > 512)
+      if (n < 32 || n > 512) {
+        close(fd);
         return 0;
+      }
+      /* This file is shared with the unprivileged backend through its private
+       * read-only volume. open(0444) alone inherits the entrypoint's umask 077.
+       * Preserve the credential, including on restart, but enforce its intended
+       * read-only sharing mode independently of the creator's umask. */
+      if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+          (!ngx_test_config && (st.st_mode & 0777) != 0444 && fchmod(fd, 0444) != 0)) {
+        close(fd);
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, errno,
+                          "cannot set shared runtime credential permissions");
+        return 0;
+      }
+      close(fd);
       bytes[n] = 0;
       while (n > 0 && (bytes[n - 1] == '\n' || bytes[n - 1] == '\r'))
         bytes[--n] = 0;

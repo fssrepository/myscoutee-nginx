@@ -14,6 +14,9 @@ import subprocess
 import tempfile
 import time
 
+# Public synthetic fixtures are read by a different container UID.
+os.umask(0o022)
+
 IMAGE = os.environ.get('NGINX_NATIVE_TEST_IMAGE', 'myscoutee-nginx:native-partition-test')
 FIXTURE = [
     {'partitionKey': 'outer', 'specificity': 1, 'geometry': {'type': 'Polygon', 'coordinates': [
