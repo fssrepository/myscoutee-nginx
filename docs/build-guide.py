@@ -30,9 +30,12 @@ def table(rows,widths):
 def furniture(canvas,doc):
     canvas.saveState()
     width,height=A4
-    canvas.drawImage(str(ROOT/'docs/assets/myscoutee-logo.png'),42,height-75,width=35,height=35,mask='auto',preserveAspectRatio=True)
-    canvas.setFont('GuideBold',11);canvas.setFillColor(BLUE);canvas.drawString(87,height-52,'MyScoutee')
-    canvas.setFont('Guide',8);canvas.setFillColor(GRAY);canvas.drawString(87,height-67,'Native nginx extensions')
+    if doc.page == 1:
+        canvas.drawImage(str(ROOT/'docs/assets/myscoutee-logo.png'),42,height-75,width=35,height=35,mask='auto',preserveAspectRatio=True)
+        canvas.setFont('GuideBold',11);canvas.setFillColor(BLUE);canvas.drawString(87,height-52,'MyScoutee')
+        canvas.setFont('Guide',8);canvas.setFillColor(GRAY);canvas.drawString(87,height-67,'Native nginx extensions')
+    else:
+        canvas.setFont('GuideBold',8);canvas.setFillColor(BLUE);canvas.drawString(42,height-52,'MYSCOUTEE / NGINX')
     canvas.setStrokeColor(colors.HexColor('#dde3ee'));canvas.line(42,43,width-42,43)
     canvas.setFont('Guide',7);canvas.drawString(42,29,'MSC-127  |  1.4.6  |  BSD-3-Clause  |  nginx 1.29.6')
     canvas.drawRightString(width-42,29,f'{doc.page} / 2')

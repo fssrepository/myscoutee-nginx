@@ -58,12 +58,15 @@ jobs:
           set -euo pipefail
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           built_id="$(docker image inspect --format '{{.Id}}' "$NGINX_NATIVE_TEST_IMAGE")"
+          nginx_version="$(docker run --rm --entrypoint nginx "$NGINX_NATIVE_TEST_IMAGE" -v 2>&1)"
+          nginx_version="${nginx_version#nginx version: nginx/}"
+          [[ "$nginx_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           docker push "$NGINX_NATIVE_TEST_IMAGE"
           docker pull "$NGINX_NATIVE_TEST_IMAGE"
           [[ "$(docker image inspect --format '{{.Id}}' "$NGINX_NATIVE_TEST_IMAGE")" == "$built_id" ]]
           digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$NGINX_NATIVE_TEST_IMAGE")"
           {
-            printf 'Shared native nginx modules, release **%s** (nginx 1.29.6, Linux amd64).\n\n' "$RELEASE_VERSION"
+            printf 'Shared native nginx modules, release **%s** (nginx %s, Linux amd64).\n\n' "$RELEASE_VERSION" "$nginx_version"
             printf 'Image: `%s`\n\nPinned image: `%s`\n\n' "$NGINX_NATIVE_TEST_IMAGE" "$digest"
             printf 'Source: `%s`. Native edge, Kubernetes TLS/readiness, geometry and traffic-tool tests passed.\n' "$RELEASE_REVISION"
           } > release-notes.md

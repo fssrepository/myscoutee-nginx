@@ -8,6 +8,8 @@ def run(*args):return subprocess.check_output(args,text=True,stderr=subprocess.S
 with tempfile.TemporaryDirectory(prefix='myscoutee-gateway-') as d:
  w=Path(d);w.chmod(0o755)
  config=(ROOT/'config/microservices/chart/files/gateway.conf').read_text()
+ route_map=ROOT/'config/nginx/http/public-routes.map'
+ partition_snapshot=ROOT/'server/docker/conf/mongodb/demo_db/countryPartitions.json'
  for key,value in {'CLUSTER_DNS':'127.0.0.1','METRICS_UPSTREAMS':'','PUBLIC_UPSTREAMS':'','PAYMENT_PROVIDER_LOCATIONS':'','MEDIA_SERVICE':'media','NAMESPACE':'test'}.items():config=config.replace('@'+key+'@',value)
  (w/'nginx.conf').write_text(config)
  (w/'runtime-status.conf').write_text('include /etc/nginx/myscoutee/runtime-status.conf;\n')
@@ -17,7 +19,11 @@ with tempfile.TemporaryDirectory(prefix='myscoutee-gateway-') as d:
  try:
   run('docker','run','-d','--name',name,'--cpus=1','--memory=128m','--user','101:101','--read-only',
       '--tmpfs','/tmp:mode=1777,size=32m','--tmpfs','/var/lib/nginx/myscoutee:uid=101,gid=101,mode=0700,size=32m',
-      '-v',d+':/etc/myscoutee:ro','-p','127.0.0.1::8080','--entrypoint','nginx',IMAGE,'-c','/etc/myscoutee/nginx.conf','-g','daemon off;')
+      '-v',d+':/etc/myscoutee:ro',
+      '-v',str(route_map)+':/etc/nginx/public-routes.map:ro',
+      '-v',str(w/'response-policy.conf')+':/etc/nginx/conf.d/https-response-policy.conf:ro',
+      '-v',str(partition_snapshot)+':/etc/nginx/countryPartitions.json:ro',
+      '-p','127.0.0.1::8080','--entrypoint','nginx',IMAGE,'-c','/etc/myscoutee/nginx.conf','-g','daemon off;')
   port=int(run('docker','port',name,'8080/tcp').rsplit(':',1)[1])
   def get(path):
    c=http.client.HTTPConnection('127.0.0.1',port,timeout=2);c.request('GET',path);r=c.getresponse();v=r.status,r.read(),dict(r.getheaders());c.close();return v
@@ -28,11 +34,14 @@ with tempfile.TemporaryDirectory(prefix='myscoutee-gateway-') as d:
    time.sleep(.1)
   else:raise AssertionError(run('docker','logs',name))
   assert get('/')[2]['X-Content-Type-Options']=='nosniff'
+  assert "form-action 'self'" in get('/')[2]['Content-Security-Policy']
+  assert get('/')[2]['Server']=='nginx'
+  missing=get('/.env');assert missing[0]==404
+  assert missing[2]['Server']=='nginx' and b'nginx/' not in missing[1]
   assert get('/assets/diagnostics/landing.js')[0]==200
   result=get('/api/auth/eligibility?latitude=47.4979&longitude=19.0402');assert json.loads(result[1])['partitionKey']=='country:hu',result
   result=get('/api/auth/eligibility?latitude=48.8566&longitude=2.3522');assert json.loads(result[1])['eligible'] is False,result
   assert get('/api/runtime-status')[0]==200
-  assert get('/.env')[0]==404
   assert get('/api/nonexistent-controller')[0]==404
   # A real client ban must leave other clients alive.
   for i in range(110):

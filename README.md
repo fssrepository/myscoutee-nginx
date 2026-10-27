@@ -41,10 +41,11 @@ records its immutable digest and source commit. Git tags `vX.Y.Z` run the native
 tests before publishing the image and its GitHub Release.
 
 ```sh
-docker build -t myscoutee-nginx:1.5.0 .
+docker build -t myscoutee-nginx:1.5.1-candidate .
 ```
 
-The image extends nginx **1.29.6-alpine** with two dynamic modules. Geometry uses
+The current Dockerfile extends nginx **1.31.8-alpine** with two dynamic modules.
+It refreshes Alpine packages during the build. Geometry uses
 C++17/S2; the edge module uses C, JSON-C and libcurl for its Kubernetes background
 reader. There is no Go/Python/Lua runtime process in this image. Shell entrypoints
 are shared here too: dev, production TLS, E2E certificates and wait-for-it are

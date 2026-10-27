@@ -1,6 +1,7 @@
-ARG NGINX_IMAGE=nginx:1.29.6-alpine
+ARG NGINX_IMAGE=nginx:1.31.8-alpine@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417
 FROM ${NGINX_IMAGE} AS module-builder
-RUN apk add --no-cache build-base linux-headers pcre2-dev openssl-dev zlib-dev s2geometry-dev json-c-dev curl-dev
+RUN apk upgrade --no-cache && \
+    apk add --no-cache build-base linux-headers pcre2-dev openssl-dev zlib-dev s2geometry-dev json-c-dev curl-dev
 COPY partition/ /module/
 COPY edge/ /edge/
 RUN sh /module/build.sh
@@ -8,7 +9,8 @@ RUN sh /module/build.sh
 FROM ${NGINX_IMAGE}
 LABEL org.opencontainers.image.source="https://github.com/fssrepository/myscoutee-nginx" \
       org.opencontainers.image.licenses="BSD-3-Clause"
-RUN apk add --no-cache s2geometry json-c libcurl bash netcat-openbsd dcron curl inotify-tools openssl tzdata jq
+RUN apk upgrade --no-cache && \
+    apk add --no-cache s2geometry json-c libcurl bash netcat-openbsd dcron curl inotify-tools openssl tzdata jq
 COPY --from=module-builder /module/ngx_http_partition_module.so /usr/lib/nginx/modules/ngx_http_partition_module.so
 COPY --from=module-builder /module/ngx_http_edge_module.so /usr/lib/nginx/modules/ngx_http_edge_module.so
 RUN mkdir -p /var/lib/nginx/myscoutee /usr/share/nginx/diagnostics && chown nginx:nginx /var/lib/nginx/myscoutee
